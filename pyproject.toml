@@ -1,0 +1,32 @@
+# pyproject.toml (setuptools + pip, no Poetry)
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "neurocapture"
+version = "0.0.1"
+description = "Realtime capture & analysis (ttkbootstrap GUI)"
+requires-python = ">=3.10"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.dynamic]
+# This makes `pip install -e .` read your runtime deps from requirements.txt.
+dependencies = {file = ["requirements.txt"]}
+
+[project.optional-dependencies]
+serial = ["pyserial>=3.5"]
+firmata = ["pyfirmata2>=2.4"]
+
+[project.scripts]
+neurocapture-tk = "neurocapture.app_ttk:main"
+
+# If you ship non-Python assets later (icons, .qss, etc.), include them:
+[tool.setuptools.package-data]
+neurocapture = ["ui/**/*.ui", "ui/**/*.qss", "ui/icons/*"]

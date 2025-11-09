@@ -1,3 +1,13 @@
+# basic data analysis requirements
 numpy
 scipy
 pandas
+# data collection from neurointerface
+pyserial
+pyfirmata2
+# GUI & data visualization
+ttkbootstrap
+matplotlib
+plotly
+# tests (optional)
+pytest
