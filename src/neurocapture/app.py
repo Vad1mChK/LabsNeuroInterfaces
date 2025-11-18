@@ -1,9 +1,10 @@
-from __future__ import annotations
-
 import os
 import tkinter as tk
 from dataclasses import dataclass
 from enum import Enum
+
+import time
+
 from tkinter import ttk, filedialog
 from typing import Optional
 
@@ -14,7 +15,10 @@ from ttkbootstrap.dialogs import Messagebox
 from neurocapture.acquire.acquire import AcquisitionController
 from neurocapture.acquire.recorder import CsvRecorder
 from neurocapture.core.types import SampleBatch, ProtocolKind, SignalType
+from neurocapture.io.base import AcquisitionDriver
+from neurocapture.io.firmata_driver import FirmataDriver
 from neurocapture.io.synthetic_driver import SyntheticDriver
+from neurocapture.io.serial_driver import SerialDriver
 from neurocapture.viz.realtime_plot import RealTimePlot
 
 
@@ -29,6 +33,7 @@ class App(tb.Frame):
 
         # State vars
         self.protocol_var = tk.StringVar(value=ProtocolKind.PY_SERIAL.value)
+        self._last_debug_output = 0.0  # For debug timing
         self.signal_var = tk.StringVar(value=SignalType.EEG.value)
         default_port = "COM3" if os.name == "nt" else "/dev/ttyUSB0"
         self.port_var = tk.StringVar(value=default_port)
@@ -150,9 +155,15 @@ class App(tb.Frame):
 
     # --- Handlers -------------------------------------------------------------
 
-    def _build_driver(self) -> SyntheticDriver:
+    def _build_driver(self) -> AcquisitionDriver:
         sig = SignalType(self.signal_var.get())
-        driver = SyntheticDriver(signal=sig, sample_rate_hz=250.0, n_channels=1)
+        match self.protocol_var.get():
+            case ProtocolKind.PY_SERIAL.value:
+                driver = SerialDriver(port=self.port_var.get(), baudrate=self.baud_var.get())
+            case ProtocolKind.FIRMATA.value:
+                driver = FirmataDriver(port=self.port_var.get())
+            case _:
+                driver = SyntheticDriver(signal=sig, sample_rate_hz=250.0, n_channels=1)
         self._fs_assumed = 250.0
         return driver
 
@@ -190,16 +201,27 @@ class App(tb.Frame):
         batches = self._drain_queue()
         if not batches:
             return
+
         for batch in batches:
+            if not batch.samples:
+                continue
+
             t = [s.t for s in batch.samples]
             amps = [s.amplitudes for s in batch.samples]
-            self.plot.push(t, amps)
-            if self._recorder is not None:
-                self._recorder.append(batch)
 
-        # keep plot window in sync with UI field
-        if abs(self.plot.seconds - self.seconds_window.get()) > 1e-6:
-            self.plot.seconds = self.seconds_window.get()
+            # Debug output to see what timestamps we're getting
+            if hasattr(self, '_last_debug_output') is False or time.time() - self._last_debug_output > 2.0:
+                print(f"First timestamp: {t[0]:.6f}, Last timestamp: {t[-1]:.6f}")
+                print(f"Sample count: {len(t)}, Amplitudes shape: {len(amps)}x{len(amps[0]) if amps else 0}")
+                self._last_debug_output = time.time()
+
+            try:
+                self.plot.push(t, amps)
+                if self._recorder is not None:
+                    self._recorder.append(batch)
+            except Exception as e:
+                print(f"Plot update error: {e}")
+                # Continue with next batch rather than crashing
 
     def on_stop(self) -> None:
         if self._controller is None:

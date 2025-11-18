@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import queue
 import threading
 from typing import Optional
@@ -19,6 +17,7 @@ class AcquisitionController:
         self._running.set()
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
+        print("Started acquisition thread")
 
     def stop(self) -> None:
         self._running.clear()
@@ -35,8 +34,11 @@ class AcquisitionController:
                 if not self._running.is_set():
                     break
                 batch.append(s)
+                print(s.t)
                 if len(batch) >= self.batch_size:
                     self.queue.put(SampleBatch(samples=batch.copy()))
                     batch.clear()
+        except Exception as e:
+            print(e)
         finally:
             self.driver.close()

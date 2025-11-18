@@ -1,6 +1,3 @@
-# src/neurocapture/viz/realtime_plot.py
-from __future__ import annotations
-
 from typing import Sequence
 import math
 import tkinter as tk
@@ -14,15 +11,16 @@ class RealTimePlot(ttk.Frame):
     Dark realtime plot widget.
 
     Behavior:
-      - X axis shows [0, seconds] from the start. It begins to scroll only after t > seconds.
+      - X axis always shows last 10 seconds: (t_max - 10, t_max)
       - Y axis limits are computed from the all-time global min/max of incoming data.
       - Internally we still drop old samples for memory, but we keep global min/max separately.
     """
 
     def __init__(self, master: tk.Misc, seconds: float, n_channels: int) -> None:
         super().__init__(master)
-        self.seconds = seconds
+        self.seconds = seconds  # Still store for buffer management
         self.n_channels = n_channels
+        self.window_seconds = 10.0  # Fixed 10-second display window
 
         self.fig = Figure(figsize=(6, 3), dpi=100)
         self.ax = self.fig.add_subplot(111)
@@ -32,8 +30,8 @@ class RealTimePlot(ttk.Frame):
         # One line per channel
         self.lines = [self.ax.plot([], [])[0] for _ in range(n_channels)]
 
-        # Initial axes: fixed [0, seconds]; y will be set on first data
-        self.ax.set_xlim(0.0, self.seconds)
+        # Initial axes: will be set on first data
+        self.ax.set_xlim(0.0, self.window_seconds)
         self.ax.set_ylim(-1.0, 1.0)
 
         self.canvas = FigureCanvasTkAgg(self.fig, master=self)
@@ -98,27 +96,25 @@ class RealTimePlot(ttk.Frame):
             if self._global_ymax is None or batch_max > self._global_ymax:
                 self._global_ymax = batch_max
 
-        # Determine current time span and manage scrolling window
-        tmax = self._t[-1]
-        if tmax <= self.seconds:
-            # Before window fills: show [0, seconds] and DO NOT scroll data out
-            x0, x1 = 0.0, self.seconds
-        else:
-            # After window fills: drop old points and scroll x-limits
-            tmin = tmax - self.seconds
-            while self._t and self._t[0] < tmin:
-                self._t.pop(0)
-                for i in range(self.n_channels):
-                    if self._y[i]:
-                        self._y[i].pop(0)
-            x0, x1 = tmin, tmax
+        # Remove old data beyond our storage window (for memory management)
+        t_max = self._t[-1]
+        t_min_storage = t_max - self.seconds
+
+        # Remove data older than storage window
+        while self._t and self._t[0] < t_min_storage:
+            self._t.pop(0)
+            for i in range(self.n_channels):
+                if self._y[i]:
+                    self._y[i].pop(0)
+
+        # Always set x-axis to show last 10 seconds
+        x_min = t_max - self.window_seconds
+        x_max = t_max
+        self.ax.set_xlim(x_min, x_max)
 
         # Update line data
         for i in range(self.n_channels):
             self.lines[i].set_data(self._t, self._y[i])
-
-        # X limits per rules above
-        self.ax.set_xlim(x0, x1)
 
         # Y limits: global since start, with a small padding
         if self._global_ymin is not None and self._global_ymax is not None:
@@ -131,5 +127,23 @@ class RealTimePlot(ttk.Frame):
                 span = ymax - ymin
                 pad = 0.05 * span
                 self.ax.set_ylim(ymin - pad, ymax + pad)
+
+        self.canvas.draw_idle()
+
+    def clear(self) -> None:
+        """Clear all data from the plot"""
+        self._t.clear()
+        for channel_data in self._y:
+            channel_data.clear()
+
+        self._global_ymin = None
+        self._global_ymax = None
+
+        for line in self.lines:
+            line.set_data([], [])
+
+        # Reset x-axis to initial state
+        self.ax.set_xlim(0.0, self.window_seconds)
+        self.ax.set_ylim(-1.0, 1.0)
 
         self.canvas.draw_idle()
